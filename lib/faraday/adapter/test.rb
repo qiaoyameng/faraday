@@ -263,14 +263,35 @@ module Faraday
         end
       end
 
-      def initialize(app, stubs = nil, &block)
+      # @param app
+      # @param stubs [Faraday::Adapter::Test::Stubs, nil]
+      # @param capabilities [Hash, Array, Symbol, nil] optional capability
+      #   declarations for this adapter instance, e.g.
+      #   `capabilities: { streaming: true }` or `capabilities: [:parallel]`.
+      #   See Faraday::Capabilities.
+      def initialize(app, stubs = nil, capabilities: nil, &block)
         super(app)
         @stubs = stubs || Stubs.new
+        self.capabilities = capabilities if capabilities
         configure(&block) if block
       end
 
       def configure
         yield(stubs)
+      end
+
+      # Overrides the capability declarations for this adapter instance.
+      #
+      # @param declarations [Hash, Array, Symbol, nil] see
+      #   Faraday::Capabilities.normalize
+      def capabilities=(declarations)
+        @declared_capabilities = Faraday::Capabilities.normalize(declarations)
+      end
+
+      # @return [Hash{Symbol => Symbol}] instance-level declarations if
+      #   configured, otherwise the class-level ones
+      def declared_capabilities
+        @declared_capabilities || self.class.declared_capabilities
       end
 
       # @param env [Faraday::Env]

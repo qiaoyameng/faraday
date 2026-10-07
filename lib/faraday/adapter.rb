@@ -5,6 +5,7 @@ module Faraday
   # responsible for fulfilling a Faraday request.
   class Adapter
     extend MiddlewareRegistry
+    extend Capabilities::ClassMethods
 
     CONTENT_LENGTH = 'Content-Length'
 
@@ -31,6 +32,12 @@ module Faraday
     extend Parallelism
 
     self.supports_parallel = false
+
+    # Adapters own the transport, so they may declare any capability,
+    # including transport-level ones.
+    def self.transport_capability_declarations_allowed?
+      true
+    end
 
     def initialize(_app = nil, opts = {}, &block)
       @app = lambda(&:response)
@@ -62,6 +69,15 @@ module Faraday
     def call(env)
       env.clear_body if env.needs_body?
       env.response = Response.new
+    end
+
+    # The capabilities declared for this adapter instance. Defaults to the
+    # class-level declarations; adapters with configurable capabilities
+    # (like Faraday::Adapter::Test) may override this per instance.
+    #
+    # @return [Hash{Symbol => Symbol}]
+    def declared_capabilities
+      self.class.declared_capabilities
     end
 
     private

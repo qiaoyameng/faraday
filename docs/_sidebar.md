@@ -31,3 +31,4 @@
 * Advanced Features
   * [Parallel Requests](advanced/parallel-requests.md)
   * [Streaming Responses](advanced/streaming-responses.md)
+  * [Capability Requirements](advanced/capabilities.md)

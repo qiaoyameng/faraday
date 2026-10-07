@@ -38,11 +38,18 @@ module Faraday
   #   #
   #   # @!attribute on_data
   #   #   @return [Proc] callback invoked with each chunk when streaming the response
+  #   #
+  #   # @!attribute required_capabilities
+  #   #   @return [Array<Symbol>] capabilities the request explicitly requires
+  #   #           (see Faraday::Capabilities). When any of these is not
+  #   #           supported by the stack, the request is rejected with
+  #   #           Faraday::CapabilityError before any work happens.
   #   class RequestOptions < Options; end
   RequestOptions = Options.new(:params_encoder, :proxy, :bind,
                                :timeout, :open_timeout, :read_timeout,
                                :write_timeout, :boundary, :oauth,
-                               :context, :on_data) do
+                               :context, :on_data,
+                               :required_capabilities) do
     def []=(key, value)
       if key && key.to_sym == :proxy
         super(key, value ? ProxyOptions.from(value) : nil)
@@ -53,6 +60,17 @@ module Faraday
 
     def stream_response?
       on_data.is_a?(Proc)
+    end
+
+    # Marks capabilities as required for this request. Requirements are
+    # checked against the capability declarations of the middleware stack
+    # and adapter before the request body or the network is touched.
+    #
+    # @param capabilities [Array<Symbol>]
+    # @return [Array<Symbol>] the full list of required capabilities
+    def require_capability(*capabilities)
+      self.required_capabilities =
+        ((required_capabilities || []) + capabilities.flatten.map(&:to_sym)).uniq
     end
   end
 end

@@ -6,6 +6,7 @@ module Faraday
   # Middleware is the basic base class of any Faraday middleware.
   class Middleware
     extend MiddlewareRegistry
+    extend Capabilities::ClassMethods
 
     attr_reader :app, :options
 

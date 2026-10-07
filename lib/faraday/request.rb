@@ -99,6 +99,15 @@ module Faraday
       headers[key] = value
     end
 
+    # Marks capabilities as required for this request, e.g.
+    # `req.require_capability(:streaming)`. See Faraday::Capabilities.
+    #
+    # @param capabilities [Array<Symbol>]
+    # @return [Array<Symbol>] the full list of required capabilities
+    def require_capability(*capabilities)
+      options.require_capability(*capabilities)
+    end
+
     # Marshal serialization support.
     #
     # @return [Hash] the hash ready to be serialized in Marshal.

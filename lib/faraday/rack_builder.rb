@@ -117,6 +117,7 @@ module Faraday
 
       klass = Faraday::Adapter.lookup_middleware(klass) if klass.is_a?(Symbol)
       @adapter = self.class::Handler.new(klass, *args, **kwargs, &block)
+      invalidate_built_state!
     end
 
     ## methods to push onto the various positions in the stack:
@@ -150,11 +151,17 @@ module Faraday
     # Processes a Request into a Response by passing it through this Builder's
     # middleware stack.
     #
+    # Before any middleware runs, the request's explicitly required
+    # capabilities (see Faraday::Capabilities) are checked against the
+    # declarations of the stack, so unsatisfiable requests fail before the
+    # body or the network is touched.
+    #
     # @param connection [Faraday::Connection]
     # @param request [Faraday::Request]
     #
     # @return [Faraday::Response]
     def build_response(connection, request)
+      assert_required_capabilities!(request)
       app.call(build_env(connection, request))
     end
 
@@ -176,9 +183,30 @@ module Faraday
     def to_app
       # last added handler is the deepest and thus closest to the inner app
       # adapter is always the last one
-      @handlers.reverse.inject(@adapter.build) do |app, handler|
+      @adapter_instance = @adapter.build
+      @handlers.reverse.inject(@adapter_instance) do |app, handler|
         handler.build(app)
       end
+    end
+
+    # Resolves every declared capability of the current stack to
+    # `:supported`, `:unsupported` or `:undeclared` (the default).
+    #
+    # Middleware can only contribute transform capabilities; transport
+    # capabilities (see Faraday::Capabilities::TRANSPORT_CAPABILITIES) are
+    # resolved exclusively from the adapter. The result is cached and the
+    # cache is invalidated whenever the adapter, the handlers, or any
+    # capability-related configuration changes.
+    #
+    # @return [Hash{Symbol => Symbol}] with a default of `:undeclared`
+    def capability_resolution
+      app # ensure the stack is built
+      key = capability_cache_key
+      if @capability_cache.nil? || @capability_cache_key != key
+        @capability_cache = compute_capability_resolution
+        @capability_cache_key = key
+      end
+      @capability_cache
     end
 
     def ==(other)
@@ -215,6 +243,74 @@ module Faraday
     end
 
     private
+
+    # Drops everything derived from the current adapter/handlers so the
+    # next request rebuilds the stack and re-resolves capabilities.
+    def invalidate_built_state!
+      @app = nil
+      @adapter_instance = nil
+      @capability_cache = nil
+      @capability_cache_key = nil
+    end
+
+    def capability_cache_key
+      [
+        @adapter,
+        @handlers,
+        adapter_capability_declarations,
+        @handlers.map { |handler| handler_capability_declarations(handler) }
+      ]
+    end
+
+    def compute_capability_resolution
+      resolution = Hash.new(Capabilities::UNDECLARED)
+      @handlers.each do |handler|
+        handler_capability_declarations(handler).each do |name, state|
+          resolution[name] = state
+        end
+      end
+      # The adapter is the final authority: its declarations override
+      # middleware ones, and it is the only source of transport capabilities.
+      adapter_capability_declarations.each do |name, state|
+        resolution[name] = state
+      end
+      resolution
+    end
+
+    def adapter_capability_declarations
+      declarations = {}
+      if @adapter_instance.respond_to?(:declared_capabilities)
+        declarations.merge!(@adapter_instance.declared_capabilities)
+      end
+      klass = @adapter.klass
+      if klass.respond_to?(:supports_parallel?) && klass.supports_parallel? &&
+         !declarations.key?(:parallel)
+        declarations[:parallel] = Capabilities::SUPPORTED
+      end
+      declarations
+    end
+
+    def handler_capability_declarations(handler)
+      klass = handler.klass
+      return {} unless klass.respond_to?(:declared_capabilities)
+
+      # Middleware is never trusted for transport capabilities, even if it
+      # somehow managed to declare one.
+      klass.declared_capabilities.except(*Capabilities::TRANSPORT_CAPABILITIES)
+    end
+
+    def assert_required_capabilities!(request)
+      required = request.options&.required_capabilities
+      return if required.nil? || required.empty?
+
+      resolution = capability_resolution
+      missing = required.map(&:to_sym).uniq.reject do |capability|
+        resolution[capability] == Capabilities::SUPPORTED
+      end
+      return if missing.empty?
+
+      raise CapabilityError.new(missing, resolution, adapter: @adapter&.name)
+    end
 
     def raise_if_locked
       raise StackLocked, LOCK_ERR if locked?

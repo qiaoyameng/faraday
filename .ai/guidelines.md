@@ -20,6 +20,9 @@ These guidelines ensure all AI agents (Copilot, Claude, Cursor, etc.) contribute
 ## Adapter Patterns
 - Adapters must extend `Faraday::MiddlewareRegistry` and register themselves.
 - If providing parallel support, include the `Parallelism` module and set `supports_parallel = true`.
+- Declare optional features with `declares_capabilities` (see `Faraday::Capabilities`). Adapters may declare
+  transport capabilities (`:streaming`, `:cancellable`, `:parallel`); middleware may only declare transform
+  capabilities. Requests opt into strict checking via `Request#require_capability`.
 - Implement required methods (`build_connection`, `close`, etc.) as seen in existing adapters.
 - Keep each adapter in its own file under `lib/faraday/adapter/`.
 

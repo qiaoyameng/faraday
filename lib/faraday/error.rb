@@ -199,4 +199,33 @@ module Faraday
   # Raised by Faraday::Middleware and subclasses when invalid default_options are used
   class InitializationError < Error
   end
+
+  # Raised before any request work happens when a request explicitly
+  # requires capabilities (see Faraday::Capabilities) that the current
+  # middleware stack and adapter do not provide.
+  #
+  # The message intentionally only contains capability names, their
+  # resolution state and the adapter class name, so sensitive configuration
+  # such as proxy credentials is never leaked through this error.
+  class CapabilityError < Error
+    # @return [Array<Symbol>] capabilities that were required but not satisfied
+    attr_reader :missing_capabilities
+
+    # @param missing_capabilities [Array<Symbol>] required capabilities that
+    #   are not satisfied by the current stack
+    # @param resolution [Hash] the full capability resolution, used to
+    #   describe why each capability is missing
+    # @param adapter [String, nil] name of the adapter in use
+    def initialize(missing_capabilities, resolution = {}, adapter: nil)
+      @missing_capabilities = missing_capabilities
+      details = missing_capabilities.map do |capability|
+        state = resolution[capability] || Capabilities::UNDECLARED
+        "#{capability} (#{state})"
+      end
+      message = 'the request requires capabilities this Faraday stack does not provide: ' \
+                "#{details.join(', ')}"
+      message += " (adapter: #{adapter})" if adapter
+      super(message)
+    end
+  end
 end
