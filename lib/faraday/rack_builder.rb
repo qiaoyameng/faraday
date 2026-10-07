@@ -21,6 +21,7 @@ module Faraday
                             'For more info, check https://lostisland.github.io/faraday/usage/.'
 
     attr_accessor :handlers
+    attr_reader :adapter_instance
 
     # Error raised when trying to modify the stack after calling `lock!`
     class StackLocked < RuntimeError; end
@@ -73,6 +74,7 @@ module Faraday
       super
       @adapter = original.adapter
       @handlers = original.handlers.dup
+      reset_app!
     end
 
     def build
@@ -100,6 +102,7 @@ module Faraday
       else
         raise_if_locked
         raise_if_adapter(klass)
+        reset_app!
         @handlers << self.class::Handler.new(klass, ...)
       end
     end
@@ -117,6 +120,8 @@ module Faraday
 
       klass = Faraday::Adapter.lookup_middleware(klass) if klass.is_a?(Symbol)
       @adapter = self.class::Handler.new(klass, *args, **kwargs, &block)
+      reset_app!
+      @adapter
     end
 
     ## methods to push onto the various positions in the stack:
@@ -126,6 +131,7 @@ module Faraday
       index = assert_index(index)
       handler = self.class::Handler.new(...)
       @handlers.insert(index, handler)
+      reset_app!
     end
 
     alias insert_before insert
@@ -144,7 +150,9 @@ module Faraday
 
     def delete(handler)
       raise_if_locked
-      @handlers.delete(handler)
+      deleted = @handlers.delete(handler)
+      reset_app! if deleted
+      deleted
     end
 
     # Processes a Request into a Response by passing it through this Builder's
@@ -155,7 +163,9 @@ module Faraday
     #
     # @return [Faraday::Response]
     def build_response(connection, request)
-      app.call(build_env(connection, request))
+      env = build_env(connection, request)
+      stack_capabilities.verify!(env.request)
+      app.call(env)
     end
 
     # The "rack app" wrapped in middleware. All requests are sent here.
@@ -176,9 +186,26 @@ module Faraday
     def to_app
       # last added handler is the deepest and thus closest to the inner app
       # adapter is always the last one
-      @handlers.reverse.inject(@adapter.build) do |app, handler|
-        handler.build(app)
+      @adapter_instance = @adapter.build
+      @stack_middleware = []
+      @handlers.reverse.inject(@adapter_instance) do |app, handler|
+        handler.build(app).tap do |middleware|
+          @stack_middleware.unshift(middleware)
+        end
       end
+    end
+
+    def stack_capabilities
+      ensure_adapter!
+      app
+      signature = [Capabilities.declaration_version, current_capabilities.signature]
+
+      if @stack_capabilities.nil? || @capabilities_signature != signature
+        @capabilities_signature = signature
+        @stack_capabilities = current_capabilities
+      end
+
+      @stack_capabilities
     end
 
     def ==(other)
@@ -215,6 +242,18 @@ module Faraday
     end
 
     private
+
+    def reset_app!
+      @app = nil
+      @adapter_instance = nil
+      @stack_middleware = []
+      @stack_capabilities = nil
+      @capabilities_signature = nil
+    end
+
+    def current_capabilities
+      StackCapabilities.new(@adapter_instance, @stack_middleware)
+    end
 
     def raise_if_locked
       raise StackLocked, LOCK_ERR if locked?

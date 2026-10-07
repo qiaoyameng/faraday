@@ -38,14 +38,26 @@ module Faraday
   #   #
   #   # @!attribute on_data
   #   #   @return [Proc] callback invoked with each chunk when streaming the response
-  #   class RequestOptions < Options; end
+  #   #
+  #   # @!attribute required_capabilities
+  #   #   @return [Array<Symbol>] capabilities explicitly required for this request
+  #   class RequestOptions < Options
+  #     include RequiredCapabilitiesOption
+  #   end
   RequestOptions = Options.new(:params_encoder, :proxy, :bind,
                                :timeout, :open_timeout, :read_timeout,
                                :write_timeout, :boundary, :oauth,
-                               :context, :on_data) do
+                               :context, :on_data, :required_capabilities) do
+    include RequiredCapabilitiesOption
+
     def []=(key, value)
-      if key && key.to_sym == :proxy
+      case key&.to_sym
+      when :proxy
         super(key, value ? ProxyOptions.from(value) : nil)
+      when :required_capabilities, :capabilities,
+           :requires_capabilities, :requires_capability,
+           :require_capabilities, :require_capability
+        self.required_capabilities = value
       else
         super
       end
@@ -54,5 +66,16 @@ module Faraday
     def stream_response?
       on_data.is_a?(Proc)
     end
+
+    def required_capabilities
+      value = self[:required_capabilities]
+      value ? Capabilities.normalize(value) : []
+    end
+    alias_method :capabilities, :required_capabilities
+
+    def required_capabilities=(value)
+      write_required_capabilities(value)
+    end
+    alias_method :capabilities=, :required_capabilities=
   end
 end

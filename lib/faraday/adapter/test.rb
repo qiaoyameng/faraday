@@ -61,6 +61,37 @@ module Faraday
     #   resp.status # => 200
     class Test < Faraday::Adapter
       attr_accessor :stubs
+      attr_reader :call_count
+
+      alias calls call_count
+
+      # Synchronous stand-in for a real adapter's asynchronous parallel manager.
+      class ParallelManager
+        def initialize
+          @pending_responses = []
+        end
+
+        def add(env, response)
+          @pending_responses << [env, response]
+        end
+
+        def execute
+          yield
+          run
+        end
+
+        def run
+          pending_responses = @pending_responses
+          @pending_responses = []
+          pending_responses.each do |env, response|
+            response.finish(env)
+          end
+        end
+      end
+
+      def self.setup_parallel_manager(_options = nil)
+        ParallelManager.new
+      end
 
       # A stack of Stubs
       class Stubs
@@ -263,19 +294,27 @@ module Faraday
         end
       end
 
-      def initialize(app, stubs = nil, &block)
+      def initialize(app, stubs = nil, capabilities: nil, &block)
         super(app)
         @stubs = stubs || Stubs.new
+        @call_count = 0
+        configure_capabilities(capabilities)
         configure(&block) if block
       end
 
       def configure
-        yield(stubs)
+        yield(stubs, self)
+      end
+
+      def capabilities=(capabilities)
+        @capability_overrides.clear
+        configure_capabilities(capabilities)
       end
 
       # @param env [Faraday::Env]
       def call(env)
         super
+        @call_count += 1
 
         env.request.params_encoder ||= Faraday::Utils.default_params_encoder
         env[:params] = env.params_encoder.decode(env[:url].query) || {}
@@ -293,24 +332,66 @@ module Faraday
                    [env, meta]
                  end
 
-        timeout = request_timeout(:open, env[:request])
-        timeout ||= request_timeout(:read, env[:request])
-
-        status, headers, body =
-          if timeout
-            ::Timeout.timeout(timeout, Faraday::TimeoutError) do
-              stub.block.call(*params)
-            end
-          else
-            stub.block.call(*params)
-          end
+        status, headers, body = call_stub(stub, params, env)
 
         # We need to explicitly pass `reason_phrase = nil` here to avoid keyword args conflicts.
         #   See https://github.com/lostisland/faraday/issues/1444
         # TODO: remove `nil` explicit reason_phrase once Ruby 3.0 becomes minimum req. version
-        save_response(env, status, body, headers, nil)
+        response_body =
+          if env.stream_response?
+            response_body_for(env, body)
+          else
+            body
+          end
 
-        @app.call(env)
+        response = save_response(env, status, response_body, headers, nil)
+
+        if env.parallel?
+          env.parallel_manager.add(env, response)
+          response
+        else
+          @app.call(env)
+        end
+      end
+
+      private
+
+      def call_stub(stub, params, env)
+        timeout = request_timeout(:open, env[:request])
+        timeout ||= request_timeout(:read, env[:request])
+
+        if timeout
+          ::Timeout.timeout(timeout, Faraday::TimeoutError) do
+            stub.block.call(*params)
+          end
+        else
+          stub.block.call(*params)
+        end
+      end
+
+      def configure_capabilities(capabilities)
+        return unless capabilities
+
+        capabilities.each do |name, state|
+          supports_capability!(name, state.nil? ? Capabilities::UNDECLARED : state)
+        end
+      end
+
+      def response_body_for(env, body)
+        return body unless env.stream_response?
+
+        env.stream_response do |&on_data|
+          if body.is_a?(String)
+            on_data.call(body.dup) unless body.empty?
+            +''
+          elsif body.respond_to?(:each)
+            body.each { |chunk| on_data.call(chunk.dup) }
+            body
+          elsif body
+            on_data.call(body)
+            body
+          end
+        end
       end
     end
   end

@@ -291,8 +291,8 @@ module Faraday
     def default_parallel_manager
       @default_parallel_manager ||= begin
         adapter = @builder.adapter.klass if @builder.adapter
-
-        if support_parallel?(adapter)
+        if @builder.adapter &&
+           @builder.stack_capabilities.supported?(Capabilities::PARALLEL_EXECUTION)
           adapter.setup_parallel_manager
         elsif block_given?
           yield
@@ -558,10 +558,6 @@ module Faraday
       else
         proxy
       end
-    end
-
-    def support_parallel?(adapter)
-      adapter.respond_to?(:supports_parallel?) && adapter&.supports_parallel?
     end
   end
 end

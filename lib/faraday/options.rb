@@ -212,6 +212,7 @@ module Faraday
   end
 end
 
+require 'faraday/options/required_capabilities_option'
 require 'faraday/options/request_options'
 require 'faraday/options/ssl_options'
 require 'faraday/options/proxy_options'

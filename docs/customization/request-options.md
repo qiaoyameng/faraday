@@ -15,6 +15,7 @@ All these options are optional.
 | `:boundary`       | String            | nil                                                            | The boundary string for multipart requests.                             |
 | `:context`        | Hash              | nil                                                            | Arbitrary data that you can pass to your request.                       |
 | `:on_data`        | Proc              | nil                                                            | A callback that will be called when data is received. See [Streaming]   |
+| `:required_capabilities` | Array<Symbol> | nil                                                            | Capabilities that must be declared by the selected adapter or middleware. See [Capability negotiation] |
 
 ## Example
 
@@ -37,3 +38,4 @@ end
 
 [ProxyOptions]: /customization/proxy-options.md
 [Streaming]: /advanced/streaming-responses.md
+[Capability negotiation]: /advanced/capability-negotiation.md

@@ -16,10 +16,13 @@ module Faraday
 
     # This module marks an Adapter as supporting parallel requests.
     module Parallelism
-      attr_writer :supports_parallel
+      def supports_parallel=(value)
+        supports_capability(Capabilities::PARALLEL_EXECUTION) if value
+        @supports_parallel = value
+      end
 
       def supports_parallel?
-        @supports_parallel
+        supports_capability?(Capabilities::PARALLEL_EXECUTION)
       end
 
       def inherited(subclass)
@@ -29,6 +32,7 @@ module Faraday
     end
 
     extend Parallelism
+    include Capabilities::Declaration
 
     self.supports_parallel = false
 
@@ -36,6 +40,7 @@ module Faraday
       @app = lambda(&:response)
       @connection_options = opts
       @config_block = block
+      @capability_overrides = {}
     end
 
     # Yields or returns an adapter's configured connection. Depends on
@@ -63,6 +68,34 @@ module Faraday
       env.clear_body if env.needs_body?
       env.response = Response.new
     end
+
+    # rubocop:disable Style/OptionalBooleanParameter
+    def supports_capability!(name, state = true)
+      # rubocop:enable Style/OptionalBooleanParameter
+      @capability_overrides[Capabilities.canonical(name)] = Capabilities.state(state)
+      self
+    end
+
+    # rubocop:disable Naming/PredicatePrefix
+    def does_not_support_capability!(name)
+      # rubocop:enable Naming/PredicatePrefix
+      supports_capability!(name, false)
+    end
+
+    def undeclare_capability!(name)
+      @capability_overrides.delete(Capabilities.canonical(name))
+      self
+    end
+
+    def capability_status(name)
+      @capability_overrides.fetch(Capabilities.canonical(name)) { super }
+    end
+
+    def capabilities_signature
+      [self.class, @capability_overrides.dup, @connection_options]
+    end
+
+    alias supports supports_capabilities?
 
     private
 

@@ -199,4 +199,11 @@ module Faraday
   # Raised by Faraday::Middleware and subclasses when invalid default_options are used
   class InitializationError < Error
   end
+
+  # Raised before a request starts when an explicitly required capability is
+  # unsupported or has not been declared.
+  class MissingCapabilitiesError < Error
+  end
+
+  MissingCapabilityError = MissingCapabilitiesError
 end

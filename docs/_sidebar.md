@@ -29,5 +29,6 @@
     * [Streaming Responses](adapters/custom/streaming.md)
     * [Test your adapter](adapters/custom/testing.md)
 * Advanced Features
+  * [Capability Negotiation](advanced/capability-negotiation.md)
   * [Parallel Requests](advanced/parallel-requests.md)
   * [Streaming Responses](advanced/streaming-responses.md)
