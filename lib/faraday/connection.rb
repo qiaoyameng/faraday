@@ -69,6 +69,7 @@ module Faraday
       end
 
       @parallel_manager = nil
+      @parallel_collector = nil
       @headers = Utils::Headers.new
       @params  = Utils::ParamsHash.new
       @options = options.request
@@ -335,6 +336,46 @@ module Faraday
       @parallel_manager = nil
     end
 
+    # Sets up the parallel manager to make a set of requests, collecting the
+    # individual result of each request instead of letting a single failure
+    # leave the rest of the batch unfinished.
+    #
+    # Requests are made exactly like with #in_parallel, but the return value
+    # is an Array with one entry per request, in the order the requests were
+    # registered. Each entry is either the finished Faraday::Response or a
+    # Faraday::ParallelFailure describing why the request didn't complete:
+    # a construction failure (the request couldn't be built or queued), a
+    # transport failure, a response middleware/on_complete error, or a batch
+    # failure when the parallel manager itself breaks. Requests that were
+    # never executed are never reported as transport failures.
+    #
+    # Already-registered requests are always executed, even if a later
+    # request fails to be built, so every accepted request reaches a final
+    # state.
+    #
+    # @param manager [Object] The parallel manager that this Connection's
+    #                Adapter uses.
+    #
+    # @yield a block to execute multiple requests.
+    # @return [Array<Faraday::Response, Faraday::ParallelFailure>] results
+    #         in the order the requests were registered.
+    def collect_results(manager = nil, &block)
+      raise ArgumentError, 'block required' unless block_given?
+
+      collector = ParallelCollector.new
+      @parallel_collector = collector
+      @parallel_manager = manager || default_parallel_manager do
+        warn 'Warning: `collect_results` called but no parallel-capable ' \
+             'adapter on Faraday stack'
+        warn caller[2, 10].join("\n")
+        nil
+      end
+      collector.collect(@parallel_manager, &block)
+    ensure
+      @parallel_manager = nil
+      @parallel_collector = nil
+    end
+
     # Sets the Hash proxy options.
     #
     # @param new_value [Object]
@@ -449,7 +490,9 @@ module Faraday
         yield(req) if block_given?
       end
 
-      builder.build_response(self, request)
+      response = builder.build_response(self, request)
+      @parallel_collector&.register(response)
+      response
     end
 
     # Creates and configures the request object.
