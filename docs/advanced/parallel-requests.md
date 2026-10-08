@@ -22,6 +22,44 @@ end
 puts "Time taken: #{Time.now - now}"
 ```
 
+## Collecting terminal states
+
+Use `#collect_results` when one parallel request must not prevent callers from
+inspecting the terminal state of the other accepted requests. The returned
+array preserves request submission order: each entry is either a
+`Faraday::Response` or a `Faraday::Parallel::Failure`.
+
+```ruby
+results = conn.collect_results do
+  conn.get('/one')
+  conn.get('/two')
+  conn.get('/three')
+end
+
+results.each do |result|
+  if result.is_a?(Faraday::Parallel::Failure)
+    puts "#{result.phase}: #{result.wrapped_exception&.message}"
+  else
+    puts result.status
+  end
+end
+```
+
+Failures are classified by the phase in which they happened:
+
+- `Faraday::Parallel::ConstructionFailure`: the request could not be built or
+  queued, so it is not reported as a transport failure.
+- `Faraday::Parallel::TransportFailure`: a response object was created, but
+  the request could not be enqueued or transmitted.
+- `Faraday::Parallel::OnCompleteFailure`: response middleware or an
+  `on_complete` callback raised.
+- `Faraday::Parallel::BatchFailure`: the parallel manager could not finish, so
+  all pending requests end with the same batch reason.
+
+Ordinary `#in_parallel` behavior is unchanged. Use `#collect_results` only when
+callers should receive per-request failure objects instead of letting an
+exception escape.
+
 ## A note on Async
 
 You might have heard about [Async] and its native integration with Ruby 3.0.

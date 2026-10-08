@@ -62,6 +62,7 @@ module Faraday
     def call(env)
       env.clear_body if env.needs_body?
       env.response = Response.new
+      Faraday::Parallel.track_response(env.response)
     end
 
     private

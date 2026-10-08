@@ -11,9 +11,10 @@ module Faraday
     def initialize(env = nil)
       @env = Env.from(env) if env
       @on_complete_callbacks = []
+      @parallel_result_slot = nil
     end
 
-    attr_reader :env
+    attr_reader :env, :parallel_error
 
     def status
       finished? ? env.status : nil
@@ -54,8 +55,25 @@ module Faraday
       raise 'response already finished' if finished?
 
       @env = env.is_a?(Env) ? env : Env.from(env)
-      @on_complete_callbacks.each { |callback| callback.call(@env) }
+      callback_error = run_on_complete_callbacks(@parallel_result_slot)
+
+      if @parallel_result_slot
+        @parallel_error = callback_error
+        if callback_error
+          @parallel_result_slot.complete_with_error(callback_error)
+        else
+          @parallel_result_slot.complete
+        end
+      elsif callback_error
+        raise callback_error
+      end
+
       self
+    end
+
+    # @api private
+    def track_parallel_result(slot)
+      @parallel_result_slot = slot
     end
 
     def success?
@@ -86,6 +104,21 @@ module Faraday
 
       @env = Env.from(request_env).update(@env)
       self
+    end
+
+    private
+
+    def run_on_complete_callbacks(continue_after_error)
+      callback_error = nil
+
+      @on_complete_callbacks.each do |callback|
+        callback.call(@env)
+      rescue StandardError => e
+        callback_error ||= e
+        raise callback_error unless continue_after_error
+      end
+
+      callback_error
     end
   end
 end

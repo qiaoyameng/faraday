@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'faraday/connection/parallel_requests'
+
 module Faraday
   # Connection objects manage the default properties and the middleware
   # stack for fulfilling an HTTP request.
@@ -315,12 +317,7 @@ module Faraday
     # @yield a block to execute multiple requests.
     # @return [void]
     def in_parallel(manager = nil, &block)
-      @parallel_manager = manager || default_parallel_manager do
-        warn 'Warning: `in_parallel` called but no parallel-capable adapter ' \
-             'on Faraday stack'
-        warn caller[2, 10].join("\n")
-        nil
-      end
+      @parallel_manager = select_parallel_manager(manager)
       return yield unless @parallel_manager
 
       if @parallel_manager.respond_to?(:execute)
@@ -565,3 +562,5 @@ module Faraday
     end
   end
 end
+
+Faraday::Connection.prepend(Faraday::Connection::ParallelRequests)
